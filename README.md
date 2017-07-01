@@ -44,11 +44,11 @@ The main script to run is GoAnalyzeImages5.m
     * In the main loop, call subfunction ExpandNode on the node with the best score. This is the node containing the subsequence whose continuation is most likely to be the optimal full sequence. Stop the loop when the unfinished node with the best score isn't as good as the best finished node. This will eventually find the full-length move sequence with the best score, and eventually the best unfinished node (and therefore all other possible unfinished nodes) will be seen to have no possible continuations that could be better, and the algorithm will return.
       + Score this node
       + Find legal continuation moves, and add them as nodes to the queue with subfunction InsertNode
-        # don't insert transpositions (getting to the same board state via different sequences) with worse scores
-        # if the move history is the full-length of the sequence we're looking for, don't insert it if its score is worse than the BestFinishedNode score
-        # GoCheckDeadStonesCausedBy this move and add them to the list of dead stones to be removed
+        - don't insert transpositions (getting to the same board state via different sequences) with worse scores
+        - if the move history is the full-length of the sequence we're looking for, don't insert it if its score is worse than the BestFinishedNode score
+        - GoCheckDeadStonesCausedBy this move and add them to the list of dead stones to be removed
       + "legal" continuations are:
-        # a repetition of the current board state for an additional time step
-        # if there are dead stones waiting to be removed from the board after an earlier capture, the only "legal moves" considered are to remove one of the dead stones.
-        # otherwise, placing a stone of the correct color for the player whose turn it is, on any empty intersection such that the group of stones to which the new stone belongs either (1) has a liberty or (2) captures stones.  Found  with GoFindLegalMoves
-        # at the beginning of the game, placing handicap stones is allowed.
+        - a repetition of the current board state for an additional time step
+        - if there are dead stones waiting to be removed from the board after an earlier capture, the only "legal moves" considered are to remove one of the dead stones.
+        - otherwise, placing a stone of the correct color for the player whose turn it is, on any empty intersection such that the group of stones to which the new stone belongs either (1) has a liberty or (2) captures stones.  Found  with GoFindLegalMoves
+        - at the beginning of the game, placing handicap stones is allowed.
