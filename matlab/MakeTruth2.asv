@@ -1,0 +1,142 @@
+function [board, Lfull] = MakeTruth(folder, Lfull, board)
+% Usage:  board = MakeTruth(folder)
+% if Lfull already found:
+%		 board = MakeTruth(folder, Lfull)
+% to double check an existing labeling:
+%		 board = MakeTruth(folder, [], board)
+%		 board = MakeTruth(folder, Lfull, board)
+% to return the board location:
+%		 [board, Lfull] = MakeTruth(...)
+%
+% A figure will display photos one at a time, rectified to a square.
+% For each photo, click to correctly label all stones on the board,
+% then press <Enter>, and the next photo will be displayed
+%		Left-click to place a new black stone, 
+%		Right-click to place a new white stone
+%		Click an existing stone to remove it.
+% After going through the whole sequence once, it will be shown again.
+% Verify that each photo is correctly labeled, or make any changes needed.
+%
+% written by steve scher in 2008, sscher@ucsc.edu
+
+	d   = dir(fullfile(folder,'*.jpg'));
+	FRAMES = length(d);
+	fig = 1;
+
+	if nargin >= 3
+		LABELEDFRAMES = size(board,3);
+		if LABELEDFRAMES > FRAMES
+			fprintf('%i labels frames have been input, but only %i photos are in folder (%s)\n  Ignoring trailing labeled frames\n', LABELEDFRAMES, FRAMES);
+		elseif LABELEDFRAMES > FRAMES
+			fprintf('%only i labels frames have been input, but %i photos are in folder (%s)\n  Repeating final labeled frame\n', LABELEDFRAMES, FRAMES);
+			board = cat(3,board, repmat(board(:,:,end),[1 1 FRAMES-LABELEDFRAMES]) );
+		end
+	end
+	if nargin < 2 || isempty(Lfull)
+		rgb   = imread(fullfile(folder, d(1).name));
+		disp('Detecting Lines');	[BW, Lines,im,Stones,rgb]= MyLineDetector4(rgb);
+		disp('Detecting Board');	Lfull = GuessSpacingRansac(BW, Lines,im,Stones,rgb);
+	end
+	NewSize = 19*16*[1 1];
+	[T,pts,TL,BL,BR,TR] = FindHomography(Lfull,rgb);
+	TL2 = TL + (TL-TR)/18/2 + (TL-BL)/18/2;
+	BR2 = BR + (BR-TR)/18/2 + (BR-BL)/18/2;
+	BL2 = BL + (BL-BR)/18/2 + (BL-TL)/18/2;
+	TR2 = TR + (TR-TL)/18/2 + (TR-BR)/18/2;
+	ptsT = [TL2 BL2 BR2 TR2];
+	Xdata1 = [min(ptsT(2,:)) max(ptsT(2,:))];
+	Ydata1 = [min(ptsT(1,:)) max(ptsT(1,:))];
+	[M,N,channels] = size(rgb);
+	Udata = [1 N];
+	Vdata = [1 M];
+
+	if nargin < 3 || isempty(board)
+		% FIRST TIME THROUGH
+
+		board = zeros(19,19,FRAMES);
+		figure(fig); clf;
+		for f = 2:FRAMES
+			set(fig,'Name',sprintf('MakeTruth First Pass: photo %i / %i', f, FRAMES));
+			rgb = imread(fullfile(folder, d(f).name));
+			im = imrotate(imtransform(rgb,     T,'nearest','Size',NewSize, 'UData',Udata ,'VData',Vdata ,'Xdata',Xdata1,'Ydata',Ydata1),90);
+
+			board(:,:,f) = ClickToUpdateBoard(board(:,:,f), im, fig);
+
+			
+			figure(fig); clf;
+			GoShowBoard(board(:,:,f-1));
+			hold on;
+			h = imagesc([.5 19.5], [.5 19.5], im); axis image;
+			set(h,'AlphaData', .5);
+
+			board(:,:,f) = board(:,:,f-1);
+			title('left mouse button = black stone, right = white stone.  Click a stone to remove it. Press Enter when done');
+			[x,y,button] = ginput(1);
+			while ~isempty(x)
+				i = round(x);
+				j = round(y);
+				if board(i,j,f) ~= 0
+					board(i,j,f) = 0;
+				else
+					if button == 1
+						board(i,j,f) = 1;
+					else
+						board(i,j,f) = 2;
+					end
+				end
+				figure(fig); clf;
+				GoShowBoard(board(:,:,f));
+				hold on;
+				h = imagesc([.5 19.5], [.5 19.5], im); axis image;
+				set(h,'AlphaData', .5);
+				[x,y,button] = ginput(1);
+			end
+		end
+	end
+
+
+	% DOUBLE-CHECK
+	figure(fig); clf;
+	for f = 1:FRAMES
+		set(fig,'Name',sprintf('MakeTruth Second Pass: photo %i / %i', f, FRAMES));
+		rgb = imread(fullfile(folder, d(f).name));
+		im = imrotate(imtransform(rgb,     T,'nearest','Size',NewSize, 'UData',Udata ,'VData',Vdata ,'Xdata',Xdata1,'Ydata',Ydata1),90);
+
+		board(:,:,f) = ClickToUpdateBoard(board(:,:,f), im, fig);
+	end
+
+	for f=1:FRAMES
+		board(:,:,f) = fliplr(board(:,:,f));
+	end
+
+end
+
+function board = ClickToUpdateBoard(board, im, fig)
+	figure(fig); clf;
+	GoShowBoard(board(:,:,f));
+	hold on;
+	h = imagesc([.5 19.5], [.5 19.5], im); axis image;
+	set(h,'AlphaData', .5);
+
+	title('left mouse button = black stone, right = white stone.  Click a stone to remove it. Press Enter when done');
+	[x,y,button] = ginput(1);
+	while ~isempty(x)
+		i = round(x);
+		j = round(y);
+		if board(i,j) ~= 0
+			board(i,j) = 0;
+		else
+			if button == 1
+				board(i,j) = 1;
+			else
+				board(i,j) = 2;
+			end
+		end
+		figure(fig); clf;
+		GoShowBoard(board);
+		hold on;
+		h = imagesc([.5 19.5], [.5 19.5], im); axis image;
+		set(h,'AlphaData', .5);
+		[x,y,button] = ginput(1);
+	end
+end

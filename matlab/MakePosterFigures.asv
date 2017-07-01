@@ -1,0 +1,54 @@
+topfolder = 'C:\Users\Steve\Documents\matlab\go\photos\ken 4-3-2008';
+Folders = dir(topfolder);
+for FolderNum = length(Folders):-1:1
+	if ~Folders(FolderNum).isdir ...
+	||	Folders(FolderNum).name(1)=='.' ...
+	|| ~exist(fullfile(topfolder, Folders(FolderNum).name,'MoveSequence.mat'),'file')
+		Folders(FolderNum)=[];
+	end
+end
+
+fig = 1;
+N = 100;
+for FolderNum = 1%:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	% Results Figures: Sequence of Original and Cartoon
+	load(fullfile(folder, 'MoveSequence.mat'), 'boardlist');
+	d = dir(fullfile(folder, '*.jpg'));
+	inds = 1:10:min(length(d),size(boardlist,3));
+	ims = zeros(N,N,3,length(inds),'uint8');
+	imBoars = ims;
+	BigIm = zeros(N*2, N*length(inds),3,'uint8');
+	for i = 1:length(inds)
+		figure(fig); clf; GoShowBoard(boardlist(:,:,inds(i)));
+		imBoards(:,:,:,i)	= imresize(frame2im(getframe(gca)), [N N]);
+		im = imread(fullfile(folder, d(i).name));
+		[m,n,c] = size(im);
+		if m>n
+			newM = N;	newN = N*n/m;
+		else
+			newN = N;	newM  = N*m/n;
+		end
+		im = imresize(im, [newM, newN]);
+		ims(1:newM,1:newN,:,i)		 = im;
+% 		subplot(1,2,1);		imagesc(im); axis image;		title(d(i).name);
+% 		subplot(1,2,2);		GoShowBoard(boardlist(:,:,i));	title(int2str(i));
+% 		pause(2);
+		BigIm(1:N,1+(i-1)*N:i*N,:) = ims(:,:,:,i);
+		BigIm(N+1:2*N,1+(i-1)*N:i*N,:) = imBoards(:,:,:,i);
+		figure(fig+1); clf; imagesc(BigIm); axis image; axis off;
+	end
+	
+	% Original Photo
+	
+	% Hands Removed
+	
+	% Detected Edges & Lines
+	
+	% Ransac
+	
+	% GrowGrid?
+	
+	% Rectified
+	
+end

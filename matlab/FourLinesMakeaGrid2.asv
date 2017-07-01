@@ -1,0 +1,130 @@
+function [BestScore,SpacingGuess, T] = FourLinesMakeaGrid(L,im,Stones,E1,E2)
+[M,N, channels] = size(im);
+if nargin < 3
+	Stones = false(M,N);
+end
+if nargin < 5
+	E1 = EdgeAngle(im,mean([L(:,1).theta])) & ~Stones;
+	E2 = EdgeAngle(im,mean([L(:,2).theta])) & ~Stones;
+end
+MinSpacing = 5;
+
+% Find 4 corner points
+pts=[];
+for i = 1:2
+	A = L(i,1).p(1);		% Line from Group 1
+	B = L(i,1).p(2);
+	for j=1:2
+		a = L(j,2).p(1);	% Line from Group 2
+		b = L(j,2).p(2);
+		x = (b-B)/(A-a);		% Intersection
+		y = (A*x+B + a*x+b)/2;
+		pts(:,end+1) = [x y]';
+	end
+end
+
+% put points in counter-clockwise ordering 
+middle = mean(mean(pts,3),2);
+angle = zeros(1,4);
+for i = 1:size(pts,2)
+	vector = pts(:,i) - middle;
+	angle(i)	= atan2(vector(2),vector(1)) * 180/pi;
+end
+[val,index] = sort(angle,'ascend');
+pts = pts(:,index);
+pts = pts([2 1],:);
+ 
+% Make box with counter-clockwise ordering
+scale = min(size(im));
+x = scale*(.25 + .5*  [ 0 0 1 1]);	% Top-Left, Bot-Left, Bot-Right, Top-Right
+y = scale*(.25 + .5*  [ 0 1 1 0]);
+
+% Find Transformation
+T = cp2tform(pts',[x' y'],'projective');
+[xT,yT] = tformfwd(T,pts(1,:),pts(2,:));
+
+% For each direction
+TL = [xT(1), yT(1)]';
+BL = [xT(2), yT(2)]';
+BR = [xT(3), yT(3)]';
+TR = [xT(4), yT(4)]';
+
+score=zeros(18,2,8);
+bwBOX = GoDrawGridLines(L,[M N],[1 1]);
+[Xcenter,Ycenter]=find(bwBOX);
+bwBOXfull = imfill(bwBOX,ceil([mean(Xcenter),mean(Ycenter)]));
+bwBOXfull = imdilate(bwBOXfull,strel('disk',4));
+for g = 1:2
+	if g==1
+		Start(:,1)=BL; Stop(:,1) = TL;
+		Start(:,2)=BR; Stop(:,2) = TR;
+		E = E1;
+	else
+		Start(:,1)=BL; Stop(:,1) = BR;
+		Start(:,2)=TL; Stop(:,2) = TR;
+		E = E2;
+	end
+% 	direction = mean(Stop-Start,2);
+% 	angle = atan2(direction(2),direction(1))*180/pi;
+% 	Edist = bwdist(E);
+% 	Edist(isinf(Edist))=0;
+	% Choose a spacing between the lines
+	for spacing = MinSpacing:18
+		% Find the lines in the transformed space
+		SpacingVector = spacing*[1 1]; SpacingVector(3-g)=NaN;
+		bwGrid = GoDrawGridLines(L,[M N],SpacingVector);
+% 		bwInside = bwGrid & ~ bwBOX;
+% 		bw = imdilate(bwInside,strel('disk',4));
+		bw = imdilate(bwGrid,strel('disk',4));
+
+		
+% 		score(spacing,g,4) = -prctile(Edist(bw),25);
+% 		score(spacing,g,5) = -mean(Edist(bw));
+%		score(spacing,g,1) = nnz(E & bw);
+		score(spacing,g,2) = nnz(E & bw)/sqrt(nnz(bw));
+%		score(spacing,g,3) = nnz(E&bw) - nnz(E & ~bw) - nnz(~E & bw);
+		score(spacing,g,6) = nnz(E&bw & bwBOXfull) / (nnz(E & ~bw & bwBOXfull) + nnz(~E & bw & bwBOXfull))  * 100;		% Try this
+		
+		if 0
+			figure(10);clf; imagesc(cat(3,bw,E,bwBOXfull)); title(int2str(spacing));
+		elseif 0
+			folder = 'C:\Documents and Settings\sscher\My Documents\matlab\go\photos\results';
+			imwrite(cat(3,bw,E,bwBOXfull),fullfile(folder,sprintf('GuessSpacing_%i_%i.jpg',g,spacing)));
+		elseif 1
+			folder = 'C:\Documents and Settings\sscher\My Documents\matlab\go\photos\results';
+			imwrite(cat(3,double(im)/255,E,bwBOXfull),fullfile(folder,sprintf('Ransac_%f.jpg',rand)));
+			BestScore = 1;
+			SpacingGuess = 1;
+			T = struct([]);
+			return;
+		end
+% 		d = Edist;			err1 = sum(sum(d(bw & bwBOXfull)));			% Penalize predicted edges with no edges found
+% 		d = bwdist(bw);		err2 = sum(sum(d(E & bwBOXfull)));			% Penalize edges found with no predicted edges
+% 		score(spacing,g,7) = -(err1+err2);
+% 
+% 		err1 = nnz( bw & ~E & bwBOXfull);
+% 		err2 = nnz(~bw &  E & bwBOXfull);
+% 		score(spacing,g,8) = err1+err2;
+		
+% 		for perc = 1:9
+% 			perplot(perc,spacing) = prctile(Edist(bw),perc*10);
+% 		end
+	end
+	[BestScore(1,g), SpacingGuess(g)] = max(score(:,g,2));
+end
+
+return;
+
+colors = hsv(size(score,3));
+scoresToShow = [2 6];
+for j=1:2
+	figure(j+1); clf;
+	for i=scoresToShow
+		%plot(5:18,scale01(score(5:end,j,i)*(-1)^any(i==[4 5 7])),'Color',colors(i,:));hold on;
+		plot(5:18,score(5:end,j,i),'Color',colors(i,:));hold on;
+	end
+	legend(cellstr(int2str(scoresToShow'))')
+end
+[];
+% figure(4); clf; plot(perplot(:,[MinSpacing 18]));
+% disp(' ')

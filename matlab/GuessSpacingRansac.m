@@ -1,0 +1,59 @@
+function [Lfull,rgb] = GuessSpacingRansac(BW, Lines,im,Stones,rgb)
+if nargin == 0
+	folder = 'C:\Documents and Settings\sscher\My Documents\matlab\go\Ryan\data';
+	rgb = imread(fullfile(folder,'13112007043.jpg'));
+	[BW, Lines,im,Stones,rgb]= MyLineDetector4(rgb);
+elseif nargin == 1 & ischar(BW)
+	rgb = imread(fullfile(folder,BW));
+	[BW, Lines,im,Stones,rgb]= MyLineDetector4(rgb);
+elseif nargin == 1
+	rgb = BW;
+	[BW, Lines,im,Stones,rgb]= MyLineDetector4(rgb);
+end
+
+%clearExcept('BW', 'Lines','im','Stones','rgb');
+E2 = EdgeAngle(im,mean([Lines{1}.theta])) & ~Stones;
+E1 = EdgeAngle(im,mean([Lines{2}.theta])) & ~Stones;
+
+for k=1:15
+	% Choose 2 lines from each group
+	for g = 1:2
+		if k==1
+			choices = [2 length(Lines{g})-1];
+		else
+			probs = normpdf(0:length(Lines{g})-1,0,length(Lines{g})^.5);
+			probs = probs/sum(probs);
+			choices(1) = find(cumsum(       probs ) >= rand,1,'first');
+			choices(2) = find(cumsum(fliplr(probs)) >= rand,1,'first' );
+			MinSeparation = 2;
+			while abs(choices(1)-choices(2)) < MinSeparation
+				choices(1) = find(cumsum(       probs ) >= rand,1,'first');
+				choices(2) = find(cumsum(fliplr(probs)) >= rand,1,'first' );
+			end
+			%choices = randperm(length(Lines{g}));
+		end
+		[tmp, orderL] = sort([Lines{g}.rho],'ascend');
+		L(:,g,k) = Lines{g}(orderL(choices(1:2)));
+	end
+
+	[BestScore(k,:),SpacingGuess(k,:)] = FourLinesMakeaGrid2(L(:,:,k),im,Stones,E1,E2);
+	
+	pause(1);
+end
+[val,BestRansac]=max(sum(BestScore,2));
+BestL = L(:,:,BestRansac);
+BestSpacing = SpacingGuess(BestRansac,:);
+%[FinalScore, BestSpacing] = FourLinesMakeaGrid2(BestL,im,Stones);
+beep;
+Lfull = GoGrowGrid4(BestL,BestSpacing,im,Stones,E1,E2);
+% toc
+% for i= 1:10
+% 	Newpts = GoTweakGrid(pts, [18 18], E1, E2);
+% 	if all(Newpts(:)==pts(:))
+% 		break;
+% 	end
+% 	pts = NewPts;
+% end
+
+
+%  GoFindStonesProject(rgb,Lfull);

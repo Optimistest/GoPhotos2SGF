@@ -1,0 +1,308 @@
+clear;
+topfolder = 'C:\Users\Steve\Documents\matlab\go\photos\ken 4-3-2008';
+Folders = dir(topfolder);
+for FolderNum = length(Folders):-1:1
+	if ~Folders(FolderNum).isdir || Folders(FolderNum).name(1)=='.'
+		Folders(FolderNum)=[];
+	end
+end
+
+for FolderNum = 1:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	if exist(fullfile(folder, 'Lfull.mat'),'file') && exist(fullfile(folder,'board.mat'),'file') && ~exist(fullfile(folder,'features.mat'),'file')
+		disp(folder);
+		Lfull = getfield(load(fullfile(folder,'Lfull'),'Lfull'),'Lfull');
+		board = getfield(load(fullfile(folder,'board'),'board'),'board');
+		d = dir(fullfile(folder,'*.jpg'));
+		FRAMES = min(length(d),size(board,3));
+		Fmax = zeros(19,19,FRAMES);
+		Fmin = zeros(19,19,FRAMES);
+		for f = 1:FRAMES
+			fprintf('Find Features: Frame %i / %i\n',f, FRAMES);
+			im	= imread(fullfile(folder, 'medians', d(f).name));
+			[Fmax(:,:,f),Fmin(:,:,f), rectified_im] = GoFindStoneFeatures(im(:,:,1),Lfull);
+			if 0
+				figure(1);clf;
+				subplot(1,4,1); imagesc(Fmin(:,:,f)); axis image; axis off;
+				subplot(1,4,2); imagesc(Fmax(:,:,f)); axis image; axis off;
+				subplot(1,4,3); imagesc(rectified_im'); axis image; axis off;
+				subplot(1,4,4); imagesc(flipud(board(:,:,f)')); axis image; axis off;
+			end
+		end
+		save(fullfile(folder,'features.mat'), 'Fmax','Fmin');
+	end
+end
+
+figure(1);clf;
+for FolderNum = 1:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	if exist(fullfile(folder, 'Lfull.mat'),'file') && exist(fullfile(folder,'board.mat'),'file') && exist(fullfile(folder,'features.mat'),'file')
+		disp(folder);
+		load(fullfile(folder,'features'),'Fmax','Fmin');
+		load(fullfile(folder,'board'),'board');
+		FRAMES = min(size(Fmax,3),size(board,3));
+% 		EmptyIndices	= imdilate(board,strel('arbitrary',ones(3,3,5)))  == 0;
+% 		BlackIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 1;
+% 		WhiteIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 2;
+		
+		EmptyIndices	= board == 0;
+		BlackIndices	= board == 1;
+		WhiteIndices	= board == 2;
+				
+		plot(Fmin(EmptyIndices),Fmax(EmptyIndices),'r.'); axis equal; hold on;
+		plot(Fmin(BlackIndices),Fmax(BlackIndices),'g.'); axis equal; hold on;
+		plot(Fmin(WhiteIndices),Fmax(WhiteIndices),'b.'); axis equal; hold on;
+		legend('Empty','Black','White')
+		pause(2);
+	end
+end
+
+
+
+for FolderNum = 1:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	if exist(fullfile(folder,'board.mat'),'file') ...
+	&& exist(fullfile(folder,'mediansHSV'),'dir') ...
+	&&~exist(fullfile(folder,'featuresHSV2.mat'),'file')
+		disp(folder);
+		load(fullfile(folder,'board'),'board');
+% 		EmptyIndices	= board == 0;
+% 		BlackIndices	= board == 1;
+%		WhiteIndices	= board == 2;
+  		EmptyIndices	= imdilate(board,strel('arbitrary',ones(3,3,5)))  == 0;
+  		BlackIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 1;
+  		WhiteIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 2;
+		d = dir(fullfile(folder,'mediansHSV','*.jpg'));
+		FRAMES = min(length(d),size(board,3));
+
+		
+		BlackFiltVals = zeros(6,nnz(BlackIndices));
+		WhiteFiltVals = zeros(6,nnz(WhiteIndices));
+		EmptyFiltVals = zeros(6,nnz(EmptyIndices));
+		NumBlack = 0;
+		NumWhite = 0;
+		NumEmpty = 0;
+		% Black Stones
+		for f = 1:FRAMES
+			fprintf('Find Features: Frame %i / %i\n',f, FRAMES);
+			hsv	= imread(fullfile(folder, 'mediansHSV', d(f).name));
+
+					[M,N,channels] = size(hsv);
+		Radius		= ceil(min([M N])/19 * .9  /2);
+		EdgeDetectSize = 0;
+		smalldisc = padarray(fspecial('disk', Radius), ceil(Radius*EdgeDetectSize)*[1 1],0,'both');
+		bigdisc   =          fspecial('disk', Radius + ceil(Radius*EdgeDetectSize));
+		discfilter = zeros(size(bigdisc));
+		discfilter(smalldisc~=0) = 1/nnz(smalldisc);
+		score1 = imfilter(im2double(hsv), discfilter,'replicate');
+		score1 = cat(3,score1,stdfilt(im2double(hsv), fspecial('disk', Radius/2)>0));
+		
+		[M,N,channels] = size(score1);
+		[X,Y] = meshgrid(1:M,1:N);
+
+			
+			IndicesThisFrame = find(BlackIndices(:,:,f))';
+			if ~isempty(IndicesThisFrame)
+				for ind = IndicesThisFrame
+					[i,j]		= ind2sub([19 19],ind);
+					x			= M/19*i - M/19/2;
+					y			= M/19*j - N/19/2;
+					mask		= ( (X-x).^2 + (Y-y).^2 )  < Radius.^2;
+					s			= score1(:,:,3);
+					s(~mask)	= NaN;
+					[tmp, index]= min(s(:));
+					[yy,xx]		= ind2sub([M N],index);
+					mask2		= ( (X-xx).^2 + (Y-yy).^2 )  < Radius.^2;
+% 					img = score1(:,:,1:3);  img(:,:,1) = 0; img(yy,xx,1) = 1;
+% 					figure(1);clf;	imagesc(img); axis off; axis image;  title('black mask'); pause(1);
+					NumBlack	= NumBlack + 1;
+					BlackFiltVals(:,NumBlack) = squeeze(score1(yy,xx,:));
+				end
+			end
+			IndicesThisFrame = find(WhiteIndices(:,:,f))';
+			if ~isempty(IndicesThisFrame)
+				for ind = IndicesThisFrame
+					[i,j]		= ind2sub([19 19],ind);
+					x			= M/19*i - M/19/2;
+					y			= M/19*j - N/19/2;
+					mask		= ( (X-x).^2 + (Y-y).^2 )  < Radius.^2;
+					s			= score1(:,:,3);
+					s(~mask)	= NaN;
+					[tmp, index]= max(s(:));
+					[yy,xx]		= ind2sub([M N],index);
+					mask2		= ( (X-xx).^2 + (Y-yy).^2 )  < Radius.^2;
+% 					img = score1(:,:,1:3);  img(:,:,1) = 0; img(yy,xx,1) = 1;
+% 					figure(1);clf;	imagesc(img); axis off; axis image;  title('white mask'); pause(1);
+					NumWhite	= NumWhite + 1;
+					WhiteFiltVals(:,NumWhite) = squeeze(score1(yy,xx,:));
+				end
+			end
+			IndicesThisFrame = find(EmptyIndices(:,:,f))';
+			if ~isempty(IndicesThisFrame)
+%				img = score1(:,:,1:3);  img(:,:,1) = 0; 
+				for ind = IndicesThisFrame
+					[i,j]		= ind2sub([19 19],ind);
+					x			= M/19*i - M/19/2   + rand*Radius/2;
+					y			= M/19*j - N/19/2   + rand*Radius/2;
+%					img(round(y),round(x),1) = 1;
+					NumEmpty	= NumEmpty + 1;
+					EmptyFiltVals(:,NumEmpty) = squeeze(score1(round(x),round(y),:));
+				end
+%				figure(1);clf;	imagesc(img); axis off; axis image;  title('empty mask'); pause(2);
+			end
+% 			if mod(f,10)==0
+% 				figure(2);clf;
+% 				x=EmptyFiltVals; plot(x(2,:),x(3,:),'.b'); hold on;
+% 				x=BlackFiltVals; plot(x(2,:),x(3,:),'.r'); hold on;
+% 				x=WhiteFiltVals; plot(x(2,:),x(3,:),'.g'); axis equal; axis([0 1 0 1]); pause(.1)
+% 			end
+		end
+		save(fullfile(folder,'featuresHSV2.mat'), 'BlackFiltVals','WhiteFiltVals','EmptyFiltVals','BlackIndices','WhiteIndices','EmptyIndices','board');
+	end
+end
+
+
+
+BlackFiltVals = zeros(6,0);
+WhiteFiltVals = zeros(6,0);
+EmptyFiltVals = zeros(6,0);
+for FolderNum = 1:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	if exist(fullfile(folder, 'featuresHSV2.mat'),'file')
+		tmp = load(fullfile(folder,'featuresHSV2.mat'), 'BlackFiltVals','WhiteFiltVals','EmptyFiltVals');
+		BlackFiltVals = cat(2, BlackFiltVals, tmp.BlackFiltVals);
+		WhiteFiltVals = cat(2, WhiteFiltVals, tmp.WhiteFiltVals);
+		EmptyFiltVals = cat(2, EmptyFiltVals, tmp.EmptyFiltVals);
+	end
+end
+ BlackFiltVals = BlackFiltVals(2:3,:);
+ WhiteFiltVals = WhiteFiltVals(2:3,:);
+ EmptyFiltVals = EmptyFiltVals(2:3,:);
+
+MinFiltVals = min([BlackFiltVals WhiteFiltVals EmptyFiltVals],[],2);
+MaxFiltVals = max([BlackFiltVals WhiteFiltVals EmptyFiltVals],[],2);
+BlackFiltVals = (BlackFiltVals - repmat(MinFiltVals,1,size(BlackFiltVals,2))) ./ repmat(MaxFiltVals - MinFiltVals,1,size(BlackFiltVals,2));
+WhiteFiltVals = (WhiteFiltVals - repmat(MinFiltVals,1,size(WhiteFiltVals,2))) ./ repmat(MaxFiltVals - MinFiltVals,1,size(WhiteFiltVals,2));
+EmptyFiltVals = (EmptyFiltVals - repmat(MinFiltVals,1,size(EmptyFiltVals,2))) ./ repmat(MaxFiltVals - MinFiltVals,1,size(EmptyFiltVals,2));
+MaxInstances = 10000;
+inds = randperm(size(BlackFiltVals,2));	B = BlackFiltVals(:,inds(MaxInstances+1:end));	BlackFiltVals = BlackFiltVals(:,inds(1:MaxInstances));	
+inds = randperm(size(WhiteFiltVals,2));	W = WhiteFiltVals(:,inds(MaxInstances+1:end));	WhiteFiltVals = WhiteFiltVals(:,inds(1:MaxInstances));	
+inds = randperm(size(EmptyFiltVals,2));	E = EmptyFiltVals(:,inds(MaxInstances+1:end));	EmptyFiltVals = EmptyFiltVals(:,inds(1:MaxInstances));	
+
+Labels = [-ones(MaxInstances,1); ones(MaxInstances,1)];
+Instances = [EmptyFiltVals'; BlackFiltVals'];
+svmBlack = svmtrain(Labels, Instances,'-b 1 -m 300 -t 2 -w-1 .5 -g 128 -c 128 -e .1');
+% [predictBlack,accuracy,probs] = svmpredict(zeros(size(Labels)), Instances, svmBlack);
+% fprintf('correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+% 	round(100*nnz(predictBlack==Labels & predictBlack==1)/length(Labels)),...
+% 	round(100*nnz(predictBlack==Labels & predictBlack==-1)/length(Labels)),...
+% 	round(100*nnz(predictBlack~=Labels & predictBlack==1)/length(Labels)),...
+% 	round(100*nnz(predictBlack~=Labels & predictBlack==-1)/length(Labels)) );
+
+Labels = [-ones(MaxInstances,1); ones(MaxInstances,1)];
+Instances = [EmptyFiltVals'; WhiteFiltVals'];
+svmWhite = svmtrain(Labels, Instances,'-b 1 -m 300 -t 2 -w-1 .5 -g 128 -c 128 -e .1');
+% [predictBlack,accuracy,probs] = svmpredict(zeros(size(Labels)), Instances, svmWhite);
+% fprintf('correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+% 	round(100*nnz(predictBlack==Labels & predictBlack==1)/length(Labels)),...
+% 	round(100*nnz(predictBlack==Labels & predictBlack==-1)/length(Labels)),...
+% 	round(100*nnz(predictBlack~=Labels & predictBlack==1)/length(Labels)),...
+% 	round(100*nnz(predictBlack~=Labels & predictBlack==-1)/length(Labels)) );
+
+[predictB,accuracyB,probsB]		= svmpredict(zeros(size(B,2),1), B', svmBlack,'-b 1');
+[predictW,accuracyW,probsW]		= svmpredict(zeros(size(W,2),1), W', svmWhite,'-b 1');
+[predictBE,accuracyBE,probsBE]	= svmpredict(zeros(size(E,2),1), E', svmBlack,'-b 1');
+[predictWE,accuracyWE,probsWE]	= svmpredict(zeros(size(E,2),1), E', svmWhite,'-b 1');
+
+fprintf('Black:\n correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+	round(100*nnz(predictB	==  1 )/length([predictB; predictBE])),...
+	round(100*nnz(predictBE	== -1 )/length([predictB; predictBE])),...
+	round(100*nnz(predictBE	==  1 )/length([predictB; predictBE])),...
+	round(100*nnz(predictB	== -1 )/length([predictB; predictBE])) );
+fprintf('White:\n correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+	round(100*nnz(predictW	==  1 )/length([predictW; predictWE])),...
+	round(100*nnz(predictWE	== -1 )/length([predictW; predictWE])),...
+	round(100*nnz(predictWE	==  1 )/length([predictW; predictWE])),...
+	round(100*nnz(predictW	== -1 )/length([predictW; predictWE])) );
+figure(1);
+s	=subplot(2,2,1); hist(probsB); title('1')
+s(2)=subplot(2,2,2); hist(probsW);title('2')
+s(3)=subplot(2,2,3); hist(probsBE); title('3')
+s(4)=subplot(2,2,4);hist(probsWE);title('4')
+
+Labels = [-ones(MaxInstances,1); ones(MaxInstances,1); ones(MaxInstances,1)];
+Instances = [EmptyFiltVals'; BlackFiltVals'; WhiteFiltVals'];
+svmEmpty = svmtrain(Labels, Instances,'-b 1 -m 300 -t 2 -w-1 .5 -g 128 -c 128 -e .1');
+[predictB,accuracyB,probsB]		= svmpredict(zeros(size(B,2),1), B', svmEmpty,'-b 1');
+[predictW,accuracyW,probsW]		= svmpredict(zeros(size(W,2),1), W', svmEmpty,'-b 1');
+[predictE,accuracyE,probsE]	= svmpredict(zeros(size(E,2),1), E', svmEmpty,'-b 1');
+fprintf('Black:\n correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+	round(100*nnz(predictB	==  1 )/length([predictB; predictE])),...
+	round(100*nnz(predictE	== -1 )/length([predictB; predictE])),...
+	round(100*nnz(predictE	==  1 )/length([predictB; predictE])),...
+	round(100*nnz(predictB	== -1 )/length([predictB; predictE])) );
+fprintf('White:\n correct positives: %d percent\ncorrect negatives: %d percent\nfalse positives: %d percent\nfalse negatives: %d percent\n',...
+	round(100*nnz(predictW	==  1 )/length([predictW; predictE])),...
+	round(100*nnz(predictE	== -1 )/length([predictW; predictE])),...
+	round(100*nnz(predictE	==  1 )/length([predictW; predictE])),...
+	round(100*nnz(predictW	== -1 )/length([predictW; predictE])) );
+
+
+
+Labels = [-ones(MaxInstances,1); zeros(MaxInstances,1); ones(MaxInstances,1)];
+Instances = [EmptyFiltVals'; BlackFiltVals'; WhiteFiltVals'];
+
+bestcv = 0;
+for log2c = 9,
+  for log2g = 7:9,
+    cmd = ['-m 300 -w-1 .25 -v 5 -c ', num2str(2^log2c), ' -g ', num2str(2^log2g)];
+    cv = svmtrain(Labels, Instances, cmd);
+    if (cv >= bestcv),
+      bestcv = cv; bestc = 2^log2c; bestg = 2^log2g;
+    end
+    fprintf('%g %g %g (best c=%g, g=%g, rate=%g)\n', log2c, log2g, cv, bestc, bestg, bestcv);
+  end
+end
+svm3 = svmtrain(Labels, Instances,'-b 1 -m 300 -w-1 .25 -g 128 -c 128 -e .01');
+
+[predictB,accuracyB,probsB]		= svmpredict(zeros(size(B,2),1), B', svm3,'-b 1');
+[predictW,accuracyW,probsW]		= svmpredict(zeros(size(W,2),1), W', svm3,'-b 1');
+[predictE,accuracyE,probsE]		= svmpredict(zeros(size(E,2),1), E', svm3,'-b 1');
+confusion = zeros(3);
+for i=1:3
+	confusion(1,i)=round(nnz(predictE==i-2)/numel(predictE)*100);
+	confusion(2,i)=round(nnz(predictB==i-2)/numel(predictB)*100);
+	confusion(3,i)=round(nnz(predictW==i-2)/numel(predictW)*100);
+end
+
+figure(2);clf;
+s	=subplot(3,1,1); hist(probsB); title('B')
+s(2)=subplot(3,1,2); hist(probsW);title('W')
+s(3)=subplot(3,1,3); hist(probsE); title('E')
+legend('B','W','E')
+
+figure(1);clf;
+for FolderNum = 1:length(Folders)
+	folder = fullfile(topfolder, Folders(FolderNum).name);
+	if exist(fullfile(folder, 'Lfull.mat'),'file') && exist(fullfile(folder,'board.mat'),'file') && exist(fullfile(folder,'mediansHSV.mat'),'dir')
+		disp(folder);
+		load(fullfile(folder,'features'),'Fmax','Fmin');
+		load(fullfile(folder,'board'),'board');
+		FRAMES = min(size(Fmax,3),size(board,3));
+% 		EmptyIndices	= imdilate(board,strel('arbitrary',ones(3,3,5)))  == 0;
+% 		BlackIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 1;
+% 		WhiteIndices	= imerode (board,strel('arbitrary',ones(1,1,5)))  == 2;
+		
+		EmptyIndices	= board == 0;
+		BlackIndices	= board == 1;
+		WhiteIndices	= board == 2;
+				
+		plot(Fmin(EmptyIndices),Fmax(EmptyIndices),'r.'); axis equal; hold on;
+		plot(Fmin(BlackIndices),Fmax(BlackIndices),'g.'); axis equal; hold on;
+		plot(Fmin(WhiteIndices),Fmax(WhiteIndices),'b.'); axis equal; hold on;
+		legend('Empty','Black','White')
+		pause(2);
+	end
+end
+
+
